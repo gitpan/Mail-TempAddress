@@ -1,9 +1,11 @@
 --- #YAML:1.0
 name: Mail-TempAddress
-version: 0.52
+version: 0.55
 license: perl
 distribution_type: module
 requires:
+  Class::Roles: 0.30
+  Mail::Action: 0.20
   Mail::Address: 1.53
   Mail::Internet: 1.53
   Test::Exception: ''
@@ -16,7 +18,7 @@ conflicts: {}
 provides:
   Mail::TempAddress:
     file: lib/Mail/TempAddress.pm
-    version: 0.52
+    version: 0.55
   Mail::TempAddress::Address:
     file: lib/Mail/TempAddress/Address.pm
   Mail::TempAddress::Addresses:

@@ -2,6 +2,12 @@ package Mail::TempAddress::Address;
 
 use strict;
 
+use Mail::Action::Address;
+use Class::Roles
+	does => 'address_expires',
+	does => 'address_named',
+	does => 'address_described';
+
 sub new
 {
 	my $class = shift;
@@ -11,61 +17,15 @@ sub new
 	}, $class;
 }
 
-sub name
-{
-	my $self      = shift;
-	$self->{name} = shift if @_;
-	$self->{name};
-}
-
 sub owner
 {
 	my $self = shift;
 	return $self->{owner};
 }
 
-sub expires
-{
-	my $self         = shift;
-	$self->{expires} = $self->process_time( shift ) + time() if @_;
-	$self->{expires};
-}
-
-sub description
-{
-	my $self             = shift;
-	$self->{description} = shift if @_;
-	return '' unless exists $self->{description};
-	$self->{description};
-}
-
 sub attributes
 {
 	{ expires => 1, description => 1 }
-}
-
-sub process_time
-{
-	my ($self, $time) = @_;
-	return $time unless $time =~ tr/0-9//c;
-
-	my %times = (
-		m =>                60,
-		h =>           60 * 60,
-		d =>      24 * 60 * 60,
-		w =>  7 * 24 * 60 * 60,
-		M => 30 * 24 * 60 * 60,
-	);
-
-	my $units    = join('', keys %times);
-	my $seconds; 
-
-	while ( $time =~ s/(\d+)([$units])// )
-	{
-		$seconds += $1 * $times{ $2 };
-	}
-
-	return $seconds;
 }
 
 sub add_sender
@@ -185,6 +145,10 @@ None known.
 =head1 TODO
 
 No plans.  It's pretty nice as it is.
+
+=head1 SEE ALSO
+
+L<Mail::Action::Address>, the parent class.
 
 =head1 COPYRIGHT
 

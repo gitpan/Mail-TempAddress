@@ -1,6 +1,9 @@
 package Mail::TempAddress;
 
 use strict;
+my $pod = do { local $/; <DATA> };
+
+use base 'Mail::Action';
 use Carp 'croak';
 
 use Mail::Mailer;
@@ -9,31 +12,11 @@ use Mail::Internet;
 
 use Mail::TempAddress::Addresses;
 use vars '$VERSION';
-$VERSION = 0.52;
+$VERSION = 0.55;
 
-sub new
+sub storage_class
 {
-	my ($class, $address_dir, $fh) = @_;
-	croak "No address directory provided\n" unless $address_dir;
-
-	$fh ||= \*STDIN;
-
-	bless {
-		Addresses => Mail::TempAddress::Addresses->new( $address_dir ),
-		Message   => Mail::Internet->new( $fh ),
-	}, $class;
-}
-
-sub addresses
-{
-	my $self = shift;
-	   $self->{Addresses};
-}
-
-sub message
-{
-	my $self = shift;
-	   $self->{Message};
+	'Mail::TempAddress::Addresses'
 }
 
 sub process
@@ -56,16 +39,10 @@ sub process
 	$self->reject( $@ );
 }
 
-sub find_command
+sub command_help
 {
-	my $self      = shift;
-	my $message   = $self->message();
-	my ($subject) = $message->get( 'Subject' ) =~ /^\*(\w+)\*/;
-
-	return unless $subject;
-
-	my $command   = $subject = 'command_' . lc( $subject );
-	return $self->can( $command ) ? $command : '';
+	my $self = shift;
+	$self->SUPER::command_help( $pod, 'USING ADDRESSES', 'DIRECTIVES' );
 }
 
 sub deliver
@@ -91,7 +68,7 @@ sub deliver
 	$headers->{'Reply-To'}          = "$user+$key\@$host";
 	$headers->{'X-MTA-Description'} = $desc if $desc;
 
-	$self->addresses()->save( $address, $address->name() );
+	$self->storage->save( $address, $address->name() );
 
 	$self->reply( $headers, join( "\n", @{ $message->body() }) );
 }
@@ -120,39 +97,16 @@ sub fetch_address
 {
 	my $self      = shift;
 	my $message   = $self->message();
-	my $addresses = $self->addresses();
+	my $addresses = $self->storage();
 	my $to        = (Mail::Address->parse( $message->get( 'To' ) ))[0]->user();
+
 	my $key;
 	$key          = $1 if $to =~ s/\+(\w+)$//;
 
 	return unless $addresses->exists( $to );
-	my $address   = $addresses->fetch( $to );
+	my $addy      = $addresses->fetch( $to );
 
-	return wantarray ? ($address, $key) : $address;
-}
-
-sub process_body
-{
-	my ($self, $address) = @_;
-	my $attributes       = $address->attributes();
-
-	for my $line (@{ $self->message()->body() })
-	{
-		next unless $line =~ /^(\w+):\s*(.*)$/;
-		my ($directive, $value) = (lc( $1 ), $2);
-		$address->$directive( $value ) if exists $attributes->{ $directive };
-	}
-}
-
-sub reply
-{
-	my ($self, $headers, @body) = @_;
-
-	my $mailer = Mail::Mailer->new();
-
-	$mailer->open( $headers );
-	$mailer->print( @body );
-	$mailer->close();
+	return wantarray ? ($addy, $key) : $addy;
 }
 
 sub command_new
@@ -162,7 +116,7 @@ sub command_new
 	my $to        = $self->parse_address( 'To' );
 	my $domain    = (Mail::Address->parse( $to ) )[0]->host();
 
-	my $addresses = $self->addresses();
+	my $addresses = $self->storage();
 	my $address   = $addresses->create( $from );
 	my $tempaddy  = $addresses->generate_address();
 
@@ -208,8 +162,7 @@ sub reject
 }
 
 1;
-
-__END__
+__DATA__
 
 =head1 NAME
 
@@ -318,13 +271,24 @@ address.  By default, it is blank.  To set a description, use the form:
 
 =over 4
 
-=item * new( $address_directory, [ $filehandle ] )
+=item * new( $address_directory,
+	[ Filehandle => $fh, Storage => $addys, Message => $mess ] )
 
-C<new()> takes one mandatory argument and one optional argument.
+C<new()> takes one mandatory argument and three optional arguments.
 C<$address_directory> is the path to the directory where address data is
-stored.  C<$filehandle> is a filehandle (or a reference to a glob) from which
-to read an incoming message.  By default, it will read from C<STDIN>, as that
-is how mail filters work.
+stored.  You can usually get by with just the mandatory argument.
+
+C<$fh> is a filehandle (or a reference to a glob) from which to read an
+incoming message.  If not provided, M::TA will read from C<STDIN>, as that is
+how mail filters work.
+
+C<$addys> should be an Storage object (which manages the storage of temporary
+addresses).  If not provided, M::TA will use L<Mail::TempAddress::Addresses> by
+default.
+
+C<$mess> should be a Mail::Internet object (representing an incoming e-mail
+message) to the constructor.  If not provided, M::TA will use L<Mail::Internet>
+by default.
 
 =item * process()
 
@@ -343,8 +307,6 @@ No known bugs.
 =head1 TODO
 
 =over 4
-
-=item * refactor out commonalities with Mail::SimpleList
 
 =item * allow nicer name generation
 

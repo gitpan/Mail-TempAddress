@@ -14,6 +14,8 @@ use File::Path 'rmtree';
 
 use Test::More tests => 20;
 
+use_ok( 'Mail::TempAddress' ) or exit;
+
 use Test::MockObject;
 use Test::Exception;
 
@@ -40,8 +42,6 @@ To: alias@there
 Subject: *new*
 
 END_HERE
-
-use_ok( 'Mail::TempAddress' ) or exit;
 
 my $ml = Mail::TempAddress->new( 'addresses', $fake_glob );
 $ml->process();

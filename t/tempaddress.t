@@ -8,7 +8,7 @@ BEGIN
 
 use strict;
 
-use Test::More tests => 111;
+use Test::More tests => 113;
 use Test::MockObject;
 
 use Test::Exception;
@@ -46,7 +46,17 @@ $mta = $module->new( 'addresses' );
 ($method, $args) = $mock_in->next_call();
 is( $args->[1], \*STDIN, '... or standard input without a filehandle' );
 
-can_ok( $module, 'addresses' );
+my $new_adds = bless {}, 'Mail::TempAddress::Addresses';
+$mta = $module->new( 'addresses', Addresses => $new_adds );
+is( $mta->storage(),
+	$new_adds,           '... accepting different Address object, if given' );
+
+my $new_mess = bless {}, 'Mail::Internet';
+$mta = $module->new( 'addresses', Message => $new_mess );
+is( $mta->message(),
+	$new_mess,           '... accepting different Message object, if given' );
+
+can_ok( $module, 'storage' );
 {
 	local *Test::MockObject::isa;
 	*Test::MockObject::isa = sub {
@@ -55,7 +65,7 @@ can_ok( $module, 'addresses' );
 		return $_[0] eq 'Mail::TempAddress::Addresses';
 	};	
 
-	isa_ok( $mta->addresses(), 'Mail::TempAddress::Addresses',
+	isa_ok( $mta->storage(), 'Mail::TempAddress::Addresses',
 		'addresses() should return object that' );
 }
 

@@ -23,8 +23,8 @@ is_deeply( $add,   { foo => 'bar', baz => 'quux', expires => 0 },
 can_ok( $module, 'name' );
 $add = $module->new( name => 'my name' );
 is( $add->name(), 'my name', 'name() should return name set in constructor' );
-$add->name( 'foo bar' );
-is( $add->name(), 'foo bar', '... or should set and return new name' );
+$add->name( 'foo# bar!' );
+is( $add->name(), 'foobar',  '... or should set and return cleand new name' );
 
 can_ok( $module, 'owner' );
 $add = $module->new( owner => 'i own it' );

@@ -1,37 +1,26 @@
 package Mail::TempAddress::Addresses;
 
 use strict;
+use base 'Mail::Action::Storage';
 
-use YAML;
-
-use Carp 'croak';
-use Fcntl ':flock';
-
-use File::Spec;
 use Mail::TempAddress::Address;
+use File::Spec;
 
 sub new
 {
 	my ($class, $directory) = @_;
-	bless { address_dir => $directory }, $class;
+	$directory ||= File::Spec->catdir( $ENV{HOME}, '.addresses' );
+	$class->SUPER::new( $directory );
 }
 
-sub address_dir
+sub stored_class
 {
-	my $self = shift;
-	return $self->{address_dir};
+	'Mail::TempAddress::Address';
 }
 
-sub address_file
+sub storage_extension
 {
-	my ($self, $filename) = @_;
-	return File::Spec->catfile( $self->address_dir(), $filename . '.mta' );
-}
-
-sub exists
-{
-	my ($self, $address) = @_;
-	return -e $self->address_file( $address );
+	'mta'
 }
 
 sub generate_address
@@ -54,45 +43,7 @@ sub create
 	Mail::TempAddress::Address->new( owner => $from_address );
 }
 
-sub save
-{
-    my ($self, $address, $address_name) = @_;
-    my $file = $self->address_file( $address_name );
-    delete $address->{name};
-
-    local *OUT;
-
-    if (-e $file)
-    {
-        open( OUT, '+< ' . $file ) or croak "Cannot save data for '$file': $!";
-        flock    OUT, LOCK_EX;
-        seek     OUT, 0, 0;
-        truncate OUT, 0;
-    }
-    else
-    {
-        open( OUT, '> ' . $file ) or croak "Cannot save data for '$file': $!";
-    }
-
-    print OUT Dump { %$address };
-}
-
-sub fetch
-{
-    my ($self, $address) = @_;
-
-    local *IN;
-    open(  IN, $self->address_file( $address ) ) or return;
-    flock( IN, LOCK_SH );
-    my $data = do { local $/; <IN> };
-    close IN;
-
-    return Mail::TempAddress::Address->new(
-		%{ Load( $data ) }, name => $address );
-}
-
 1;
-
 __END__
 
 =head1 NAME
@@ -101,7 +52,7 @@ Mail::TempAddress::Addresses - manages Mail::TempAddress::Address objects
 
 =head1 SYNOPSIS
 
-	use Mail::TempAddress::Addresses;
+use Mail::TempAddress::Addresses;
 	my $addresses = Mail::TempAddress::Addresses->new( '.addresses' );
 
 =head1 DESCRIPTION
@@ -124,9 +75,14 @@ ambiguous.
 If no argument is provided, this will default to C<~/.addresses> for the
 invoking user.
 
-=item * address_dir()
+=item * storage_dir()
 
 Returns the directory where this object's Address data files are stored.
+
+=item * storage_extension()
+
+Returns the extension of the generated address files.  By default, this is
+C<mta>.  Note that the leading period is not part of the extension.
 
 =item * exists( $address_id )
 
@@ -168,6 +124,13 @@ None known.
 =head1 TODO
 
 No plans.  It's pretty nice as it is.
+
+=head1 SEE ALSO
+
+L<Mail::Action::Storage>, the parent class of this module.
+
+James FitzGibbon's L<Mail::TempAddress::Addresses::Purgeable>, an example of
+subclassing this class.
 
 =head1 COPYRIGHT
 

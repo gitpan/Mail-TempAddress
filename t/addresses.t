@@ -11,7 +11,7 @@ use strict;
 use File::Spec;
 use File::Path;
 
-use Test::More tests => 24;
+use Test::More tests => 29;
 use Test::MockObject;
 
 mkdir 'addresses' unless -d 'addresses';
@@ -32,15 +32,29 @@ can_ok( $module, 'new' );
 my $addys = $module->new( 'addresses' );
 isa_ok( $addys, $module );
 
-can_ok( $module, 'address_dir' );
-is( $addys->address_dir(), 'addresses',
-	'address_dir() should return value set in constructor' );
+can_ok( $module, 'storage_dir' );
+is( $addys->storage_dir(), 'addresses',
+	'storage_dir() should return value set in constructor' );
 
-can_ok( $module, 'address_file' );
+$addys = $module->new();
+is( $addys->storage_dir(), File::Spec->catdir( $ENV{HOME}, '.addresses' ),
+	'... or default value, if none is set' );
+
+$addys = $module->new( 'addresses' );
+
+can_ok( $module, 'stored_class' );
+is( $module->stored_class(), 'Mail::TempAddress::Address',
+	'stored_class() should be M::TA::Addresses' );
+
+can_ok( $module, 'storage_extension' );
+is( $addys->storage_extension(), 'mta', 
+	'storage_extension() should return "mta"' );
+
+can_ok( $module, 'storage_file' );
 my $exists = File::Spec->catfile( 'addresses', 'exists.mta' );
-my $result = $addys->address_file( 'exists' );
+my $result = $addys->storage_file( 'exists' );
 is( $result, $exists,
-	'address_file() should add path and extension to filename' );
+	'storage_file() should add path and extension to filename' );
 
 can_ok( $module, 'exists' );
 {
