@@ -8,7 +8,7 @@ BEGIN
 
 use strict;
 
-use Test::More tests => 113;
+use Test::More tests => 112;
 use Test::MockObject;
 
 use Test::Exception;
@@ -17,9 +17,9 @@ my $mock      = Test::MockObject->new();
 my $mock_in   = Test::MockObject->new();
 my $mock_head = Test::MockObject->new();
 
-$mock->fake_module( 'Mail::Mailer',   new => sub { $mock } );
+$mock->fake_module( 'Mail::Mailer',      new => sub { $mock } );
 $mock_in->set_true( 'my_new' )
-	    ->fake_module( 'Mail::Internet', new => sub {
+	    ->fake_module( 'Mail::Message', read => sub {
 			shift;
 			$mock_in->my_new(@_)
 		});
@@ -51,7 +51,7 @@ $mta = $module->new( 'addresses', Addresses => $new_adds );
 is( $mta->storage(),
 	$new_adds,           '... accepting different Address object, if given' );
 
-my $new_mess = bless {}, 'Mail::Internet';
+my $new_mess = bless {}, 'Mail::Message';
 $mta = $module->new( 'addresses', Message => $new_mess );
 is( $mta->message(),
 	$new_mess,           '... accepting different Message object, if given' );
@@ -72,22 +72,21 @@ can_ok( $module, 'storage' );
 can_ok( $module, 'message' );
 
 # hey, look over there!  -->
-$mock_in->set_always( my_new => bless {}, 'Mail::Internet');
+$mock_in->set_always( my_new => bless {}, 'Mail::Message');
 $mta = $module->new( 'addresses' );
 
-isa_ok( $mta->message(), 'Mail::Internet',
+isa_ok( $mta->message(), 'Mail::Message',
 	'message() should return something that' );
 
 can_ok( $module, 'find_command' );
 
 $mta->{Message} = $mock;
-$mock->set_series( get => '*new*', '*foo*', 'bar' );
+$mock->set_series( subject => '*new*', '*foo*', 'bar' );
 
 my $result = $mta->find_command();
 ($method, $args) = $mock->next_call();
 
-is( $method,    'get',         'find_command() should get' );
-is( $args->[1], 'Subject',     '... message subject' );
+is( $method,    'subject',     'find_command() should get message subject' );
 is( $result,    'command_new', '... returning command sub name if exists' );
 
 $result = $mta->find_command();
@@ -126,13 +125,15 @@ $mock->set_true( 'open' )
 	 ->set_true( 'close' )
 	 ->clear();
 
-$mock_mess->set_series( get  => ( 'from@ddress', 'to@host' ) x 2 )
-	      ->set_always( body => [qw( my body lines )] )
-		  ->set_always( head => $mock_head )
+$mock_mess->set_series( get     => ( 'from@ddress', 'to@host' ) x 2 )
+		  ->set_always( decoded => $mock_mess )
+		  ->set_always( lines   => [qw( my body lines )] )
+		  ->set_always( head    => $mock_head )
 	      ->clear();
 
 my $headers = { Subject => 'my subject', Foo => 'bar' };
-$mock_head->set_always( header_hashref => $headers );
+$mock_head->mock( names => sub { keys %$headers    } )
+		  ->mock( get   => sub { $headers->{$_[1]} } );
 
 my $mock_addy = Test::MockObject->new();
 $mock_addy->set_always( add_sender  => 'send_key' )
@@ -295,7 +296,10 @@ is( $args->[1], "Deliver!\n",    '... with the error message' );
 can_ok( $module, 'process_body' );
 
 $mta->{Message} = $mock_mess;
-$mock_mess->mock( body => sub {[ 'foo: bar', 'bar: b@z', 'quux: qAAx' ]} )
+$mock_mess->set_always( body    => $mock_mess )
+	      ->set_always( decoded => $mock_mess )
+	      ->set_always( stripSignature => [
+	        'foo: bar', 'bar: b@z', 'quux: qAAx' ] )
 	      ->clear();
 
 $mock_addy->set_always( attributes => { foo => 1, quux => 1 } )
@@ -429,11 +433,17 @@ can_ok( $module, 'copy_headers' );
 $mta->{Message} = $mock_mess;
 $headers        = { foo => [qw( bar baz )], quux => 1, 'From ' => 'icky' };
 
-$mock_head->set_always( header_hashref => $headers );
+$mock_head->mock( get => sub
+{
+	my $value = $headers->{$_[1]};
+	return $value      unless ref $value;
+	return $value->[0] unless wantarray;
+	return @$value;
+});
 
 $result = $mta->copy_headers();
 isa_ok( $result,     'HASH',     'copy_headers() should return headers' );
 isnt( $result,       $headers,   '... not pointing to same hash' );
-is( $result->{quux}, 1,          '... copying normal headers across' );
-is( $result->{foo}, 'bar, baz',  '... string and commify-ing a list' );
+is( $result->{Quux}, 1,          '... copying normal headers across' );
+is( $result->{Foo}, 'bar, baz',  '... string and commify-ing a list' );
 ok( ! exists $result->{'From '}, '... deleting mail starting "From " header' );

@@ -12,7 +12,7 @@ use FakeIn;
 use FakeMail;
 use File::Path 'rmtree';
 
-use Test::More tests => 20;
+use Test::More tests => 22;
 
 use_ok( 'Mail::TempAddress' ) or exit;
 
@@ -87,7 +87,7 @@ like( $alias, qr/$address\+(\w+)\@there/,
 like( $mail->body(), qr/Here is.+my message!!/s,
 	'... preserving message body' );
 
-my $sh = 'Some-Header';
+my $sh = 'Some-header';
 is( $mail->$sh(), 'foo', '... preserving other headers' );
 
 diag( 'Replying to a keyed alias' );
@@ -112,7 +112,7 @@ is( $mail->To(), 'someone@somewhere',
 is( $mail->From(), "$address\@there", '... from temporary address' );
 like( $mail->body(), qr/I am responding.+to.+you/s,
 	'... with body' );
-my $ah = 'Another-Header';
+my $ah = 'Another-header';
 is( $mail->$ah(), 'bar', '... preserving other headers' );
 
 diag( 'Expiration dates should work' );
@@ -185,3 +185,43 @@ my $desc      = $mail->$desc_head();
 
 is( $desc, 'my temporary address',
 	'description header should be present in responses' );
+
+diag( 'Respect multi-part messages' );
+
+my $boundary = "=-o/TyUX3mnxrfgX+Lef56";
+
+$fake_glob = FakeIn->new( split(/\n/, <<"END_HERE" ) );
+Subject: attachment test
+From: me\@home
+To: $address\@there
+Content-Type: multipart/mixed; boundary="$boundary"
+Mime-Version: 1.0
+
+
+--=-o/TyUX3mnxrfgX+Lef56
+Content-Type: text/plain
+Content-Transfer-Encoding: 7bit
+
+hey there
+
+-- 
+my signature
+
+--=-o/TyUX3mnxrfgX+Lef56
+Content-Disposition: attachment; filename=hi.txt
+Content-Type: text/plain; name=hi.txt; charset=
+Content-Transfer-Encoding: 7bit
+
+Hi there!
+
+--=-o/TyUX3mnxrfgX+Lef56--
+END_HERE
+$ml = Mail::TempAddress->new( 'addresses', $fake_glob );
+$ml->process();
+
+$mail    = shift @mails;
+my $body = $mail->body();
+my $ct   = 'Content-type';
+like( $mail->$ct(), qr!multipart/mixe!, 'should maintain content type header' );
+like( $body, qr/hey there\n\n-- \nmy signature/,
+	'... not adding extra newlines' );

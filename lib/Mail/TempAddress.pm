@@ -8,11 +8,10 @@ use Carp 'croak';
 
 use Mail::Mailer;
 use Mail::Address;
-use Mail::Internet;
 
 use Mail::TempAddress::Addresses;
 use vars '$VERSION';
-$VERSION = 0.55;
+$VERSION = 0.56;
 
 sub storage_class
 {
@@ -70,7 +69,7 @@ sub deliver
 
 	$self->storage->save( $address, $address->name() );
 
-	$self->reply( $headers, join( "\n", @{ $message->body() }) );
+	$self->reply( $headers, @{ $message->decoded->lines() } );
 }
 
 sub respond
@@ -136,21 +135,6 @@ sub parse_address
 	my $message        = $self->message();
 
 	return (Mail::Address->parse( $message->get( $field ) ))[0]->address();
-}
-
-sub copy_headers
-{
-	my $self    = shift;
-	my $headers = $self->message()->head()->header_hashref();
-	my %copy;
-	@copy{ keys %$headers } = map {
-		my $line = UNIVERSAL::isa( $_, 'ARRAY' ) ? join(', ', @$_) : $_;
-		chomp $line;
-		$line;
-	} values %$headers;
-
-	delete $copy{'From '};
-	return \%copy;
 }
 
 sub reject
@@ -286,8 +270,8 @@ C<$addys> should be an Storage object (which manages the storage of temporary
 addresses).  If not provided, M::TA will use L<Mail::TempAddress::Addresses> by
 default.
 
-C<$mess> should be a Mail::Internet object (representing an incoming e-mail
-message) to the constructor.  If not provided, M::TA will use L<Mail::Internet>
+C<$mess> should be a Mail::Message object (representing an incoming e-mail
+message) to the constructor.  If not provided, M::TA will use L<Mail::Message>
 by default.
 
 =item * process()
