@@ -7,11 +7,11 @@ use base 'Mail::Action';
 use Carp 'croak';
 
 use Mail::Mailer;
-use Mail::Address;
+use Email::Address;
 
 use Mail::TempAddress::Addresses;
 use vars '$VERSION';
-$VERSION = 0.56;
+$VERSION = '0.60';
 
 sub storage_class
 {
@@ -56,7 +56,7 @@ sub deliver
 	my $key     = $address->add_sender( $from );
 	my $desc    = $address->description();
 
-	my $to      = (Mail::Address->parse( $message->get( 'To' ) ))[0];
+	my ($to)    = Email::Address->parse( $message->header( 'To' ) );
 	my $user    = $to->user();
 	my $host    = $to->host();
 
@@ -69,27 +69,26 @@ sub deliver
 
 	$self->storage->save( $address, $address->name() );
 
-	$self->reply( $headers, @{ $message->decoded->lines() } );
+	$self->reply( $headers, $message->body_raw() );
 }
 
 sub respond
 {
 	my ($self, $address, $key) = @_;
 
-	my $to         = $address->get_sender( $key )
+	my $to          = $address->get_sender( $key )
 		or die "No sender for '$key'\n";
 
-	my $message    = $self->message();
+	my $message     = $self->message();
 
-	my $host       = (Mail::Address->parse( $message->get( 'To' ) ))[0]->host();
-	my $from       = $address->name() . '@' . $host;
+	my $host = (Email::Address->parse( $message->header( 'To' ) ))[0]->host();
+	my $from = $address->name() . "\@$host";
 
-	my $headers    = $self->copy_headers();
-
+	my $headers      = $self->copy_headers();
 	$headers->{To}   = $to;
 	$headers->{From} = $from;
 
-	$self->reply( $headers, join("\n", @{ $self->message->body() }) );
+	$self->reply( $headers, $self->message->body_raw() );
 }
 
 sub fetch_address
@@ -97,7 +96,8 @@ sub fetch_address
 	my $self      = shift;
 	my $message   = $self->message();
 	my $addresses = $self->storage();
-	my $to        = (Mail::Address->parse( $message->get( 'To' ) ))[0]->user();
+	my ($to_addy) = Email::Address->parse( $message->header( 'To' ) );
+	my $to        = $to_addy->user();
 
 	my $key;
 	$key          = $1 if $to =~ s/\+(\w+)$//;
@@ -113,7 +113,7 @@ sub command_new
 	my $self      = shift;
 	my $from      = $self->parse_address( 'From' );
 	my $to        = $self->parse_address( 'To' );
-	my $domain    = (Mail::Address->parse( $to ) )[0]->host();
+	my $domain    = (Email::Address->parse( $to ) )[0]->host();
 
 	my $addresses = $self->storage();
 	my $address   = $addresses->create( $from );
@@ -134,7 +134,7 @@ sub parse_address
 	my ($self, $field) = @_;
 	my $message        = $self->message();
 
-	return (Mail::Address->parse( $message->get( $field ) ))[0]->address();
+	return (Email::Address->parse( $message->header( $field ) ))[0]->address();
 }
 
 sub reject

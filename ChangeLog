@@ -1,5 +1,14 @@
+0.60
+	Sun Jul 11 03:36:11 UTC 2004 ($Rev: 41 $, $Author: chromatic $)
+	- ported to Mail::Action 0.40 (Email::Simple, Email::MIME)
+	- improved build requrements listing in Build.PL
+
+0.57
+	Sun Apr 11 05:51:54 UTC 2004 (Rev: 38, Author: chromatic)
+	- don't add newlines to multi-part messages in Mail::TempAddress::respond()
+
 0.56
-	Tue Mar 16 05:23:32 UTC 2004 ($Rev: 35 $, $Author: chromatic $)
+	Tue Mar 16 05:23:32 UTC 2004 (Rev: 35, Author: chromatic)
 	- added ChangeLog to MANIFEST
 
 	Tue Mar 16 05:18:44 UTC 2004 (Rev: 34, Author: chromatic)

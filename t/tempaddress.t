@@ -3,23 +3,25 @@
 BEGIN
 {
     chdir 't' if -d 't';
-	use lib '../lib', '../blib/lib';
+	use lib '../lib', '../blib/lib', 'lib';
 }
 
 use strict;
 
-use Test::More tests => 112;
-use Test::MockObject;
+use FakeIn;
+use IO::File;
 
+use Test::More tests => 113;
+use Test::MockObject;
 use Test::Exception;
 
 my $mock      = Test::MockObject->new();
 my $mock_in   = Test::MockObject->new();
 my $mock_head = Test::MockObject->new();
 
-$mock->fake_module( 'Mail::Mailer',      new => sub { $mock } );
+$mock->fake_module( 'Mail::Mailer',   new => sub { $mock } );
 $mock_in->set_true( 'my_new' )
-	    ->fake_module( 'Mail::Message', read => sub {
+	    ->fake_module( 'Email::MIME', new => sub {
 			shift;
 			$mock_in->my_new(@_)
 		});
@@ -35,23 +37,34 @@ can_ok( $module, 'new' );
 throws_ok { $module->new() } qr/No address directory provided/,
 	'new() should throw error without address parameter';
 
-my $fh  = \*STDOUT;
+my $fh  = FakeIn->new( qw( my lines ) );
 my $mta = $module->new( 'addresses', $fh );
 isa_ok( $mta, $module );
 
 my ($method, $args) = $mock_in->next_call();
-is( $args->[1], $fh,     '... using any passed-in filehandle' );
+is( $args->[1], "my\nlines\n",     '... using data from passed-in filehandle' );
 
-$mta = $module->new( 'addresses' );
+{
+	local *STDIN;
+
+	my $stdin = IO::File->new_tmpfile();
+	my $pos   = $stdin->getpos();
+	$stdin->print( qw( my more lines ) );
+	$stdin->setpos( $pos );
+
+	*STDIN = $stdin;
+	$mta = $module->new( 'addresses' );
+}
+
 ($method, $args) = $mock_in->next_call();
-is( $args->[1], \*STDIN, '... or standard input without a filehandle' );
+is( $args->[1], "mymorelines", '... or standard input without a filehandle' );
 
 my $new_adds = bless {}, 'Mail::TempAddress::Addresses';
-$mta = $module->new( 'addresses', Addresses => $new_adds );
+$mta = $module->new( 'addresses', Addresses => $new_adds, Filehandle => ' ' );
 is( $mta->storage(),
 	$new_adds,           '... accepting different Address object, if given' );
 
-my $new_mess = bless {}, 'Mail::Message';
+my $new_mess = bless {}, 'Email::MIME';
 $mta = $module->new( 'addresses', Message => $new_mess );
 is( $mta->message(),
 	$new_mess,           '... accepting different Message object, if given' );
@@ -72,21 +85,22 @@ can_ok( $module, 'storage' );
 can_ok( $module, 'message' );
 
 # hey, look over there!  -->
-$mock_in->set_always( my_new => bless {}, 'Mail::Message');
-$mta = $module->new( 'addresses' );
+$mock_in->set_always( my_new => bless {}, 'Email::MIME' );
+$mta = $module->new( 'addresses', ' ' );
 
-isa_ok( $mta->message(), 'Mail::Message',
+isa_ok( $mta->message(), 'Email::MIME',
 	'message() should return something that' );
 
 can_ok( $module, 'find_command' );
 
 $mta->{Message} = $mock;
-$mock->set_series( subject => '*new*', '*foo*', 'bar' );
+$mock->set_series( header => '*new*', '*foo*', 'bar' );
 
 my $result = $mta->find_command();
 ($method, $args) = $mock->next_call();
 
-is( $method,    'subject',     'find_command() should get message subject' );
+is( $method,    'header',      'find_command() should fetch header' );
+is( $args->[1], 'Subject',     '... for message subject' );
 is( $result,    'command_new', '... returning command sub name if exists' );
 
 $result = $mta->find_command();
@@ -97,8 +111,9 @@ is( $result,    undef,         '... or if no command found' );
 
 can_ok( $module, 'fetch_address' );
 
-my $mock_mess = Test::MockObject->new();
-$mock_mess->set_series( get => 'to@ddress', 'to', 'to+your@ddress' );
+my $mock_mess   = Test::MockObject->new()->set_series(
+	header => 'to@ddress', 'to@elsewhere', 'to+your@ddress'
+);
 $mta->{Message} = $mock_mess;
 
 $mock_addys->set_series( exists => 1, 0, 1 )
@@ -107,8 +122,8 @@ $mock_addys->set_series( exists => 1, 0, 1 )
 $result = $mta->fetch_address();
 
 ($method, $args) = $mock_mess->next_call();
-is( $method,     'get',     'fetch_address() should get' );
-is( $args->[1],  'To',      '... To address' );
+is( $method,     'header',  'fetch_address() should fetch header' );
+is( $args->[1],  'To',      '... for To address' );
 is( $result,     'fetched', '... returning fetched Address' );
 
 $result = $mta->fetch_address();
@@ -125,15 +140,13 @@ $mock->set_true( 'open' )
 	 ->set_true( 'close' )
 	 ->clear();
 
-$mock_mess->set_series( get     => ( 'from@ddress', 'to@host' ) x 2 )
-		  ->set_always( decoded => $mock_mess )
-		  ->set_always( lines   => [qw( my body lines )] )
-		  ->set_always( head    => $mock_head )
+$mock_mess->set_series( header   => ( 'from@ddress', 'to@host' ) x 2 )
+		  ->set_always( decoded  => $mock_mess )
+		  ->set_always( body_raw => "my\nbody\nlines" )
+		  ->set_always( head     => $mock_head )
 	      ->clear();
 
-my $headers = { Subject => 'my subject', Foo => 'bar' };
-$mock_head->mock( names => sub { keys %$headers    } )
-		  ->mock( get   => sub { $headers->{$_[1]} } );
+$mock_mess->{head} = { Subject  => [ 'my subject' ], Foo => [ 'bar' ] };
 
 my $mock_addy = Test::MockObject->new();
 $mock_addy->set_always( add_sender  => 'send_key' )
@@ -149,12 +162,12 @@ lives_ok { $mta->deliver( $mock_addy ) }
 	'deliver() should throw no exception with no expiration date';
 
 ($method, $args) = $mock_mess->next_call();
-is( $method,         'get',                'deliver() should get' );
-is( $args->[1],      'From',               '... from address' );
+is( $method,         'header',             'deliver() should fetch header' );
+is( $args->[1],      'From',               '... for from address' );
 
 ($method, $args) = $mock_mess->next_call();
-is( $method,           'get',              '... and should get' );
-is( $args->[1],        'To',               '... to address' );
+is( $method,         'header',             '... and should fetch header' );
+is( $args->[1],      'To',                 '... for to address' );
 
 ($method, $args) = $mock_addy->next_call();
 is( $method,           'expires',          '... checking for expiration' );
@@ -200,11 +213,10 @@ is( $args{'X-MTA-Description'}, 'my desc',
 
 can_ok( $module, 'respond' );
 
-$headers = { Subject => 'message' };
-$mock_head->set_always( header_hashref => $headers );
+$mock_mess->{head} = { Subject  => [ 'message' ] };
 
-$mock_mess->set_always( body => [qw( my body text )] )
-	      ->set_series( get  => 'alias@host' );
+$mock_mess->set_always( body_raw => "my\nbody\ntext" )
+	      ->set_series( header   => 'foobar@host' );
 
 $mock_addy->set_series( get_sender => 'some@sender' )
 	      ->set_always( name       => 'foobar' )
@@ -220,15 +232,14 @@ is( $args->[1],      'key',         '... by key' );
 
 ($method, $args) = $mock->next_call();
 %args = %{ $args->[1] };
-is( $method,          'open',        '... opening a message' );
-is( $args{To},        'some@sender', '... responding to keyed sender' );
-is( $args{From},      'foobar@host', '... setting From address correctly' );
-is( $args{Subject},   'message',     '... copying Subject header' );
+is( $method,          'open',            '... opening a message' );
+is( $args{To},        'some@sender',     '... responding to keyed sender' );
+is( $args{From},      'foobar@host',     '... setting From address correctly' );
+is( $args{Subject},   'message',         '... copying Subject header' );
 
 ($method, $args) = $mock->next_call();
 shift @$args;
-is( join('', @$args),
-	"my\nbody\ntext",                '... and adding body' );
+is( "@$args",         "my\nbody\ntext",  '... and adding body' );
 
 throws_ok { $mta->respond( $mock_addy, 'nokey' ) } qr/No sender for 'nokey'/,
 	'... throwing an exception unless sender is found';
@@ -296,10 +307,8 @@ is( $args->[1], "Deliver!\n",    '... with the error message' );
 can_ok( $module, 'process_body' );
 
 $mta->{Message} = $mock_mess;
-$mock_mess->set_always( body    => $mock_mess )
-	      ->set_always( decoded => $mock_mess )
-	      ->set_always( stripSignature => [
-	        'foo: bar', 'bar: b@z', 'quux: qAAx' ] )
+$mock_mess->set_always( parts => $mock_mess )
+	      ->set_always( body  => "foo: bar\nbar: b\@z\nquux: qAAx" )
 	      ->clear();
 
 $mock_addy->set_always( attributes => { foo => 1, quux => 1 } )
@@ -374,7 +383,7 @@ can_ok( $module, 'command_new' );
 	my $mock_addy = Test::MockObject->new();
 
 	$mta->{Message} = $mock;
-	$mock->set_series( get => 'from@ddress', 'to@ddress' )
+	$mock->set_series( header => 'from@ddress', 'to@ddress' )
 		 ->clear();
 
 	$mock_addys->set_always( generate_address => 'generated' )
@@ -386,12 +395,12 @@ can_ok( $module, 'command_new' );
 
 	$mta->command_new();
 	($method, $args) = $mock->next_call();
-	is( $method,    'get',  'command_new() should fetch' );
-	is( $args->[1], 'From', '... from address' );
+	is( $method,    'header',  'command_new() should fetch' );
+	is( $args->[1], 'From',    '... from address' );
 
 	($method, $args) = $mock->next_call();
-	is( $method,    'get',  '... and should fetch' );
-	is( $args->[1], 'To', '... to address' );
+	is( $method,    'header',  '... and should fetch' );
+	is( $args->[1], 'To',      '... to address' );
 
 	($method, $args) = $mock_addys->next_call();
 	is( $method,    'create',           '... creating a new Address object' );
@@ -430,20 +439,16 @@ throws_ok { $mta->reject( 'error' ) } qr/error/,
 is( $! + 0, 100, '... setting $! properly' );
 
 can_ok( $module, 'copy_headers' );
-$mta->{Message} = $mock_mess;
-$headers        = { foo => [qw( bar baz )], quux => 1, 'From ' => 'icky' };
-
-$mock_head->mock( get => sub
+$mta->{Message}    = $mock_mess;
+$mock_mess->{head} =
 {
-	my $value = $headers->{$_[1]};
-	return $value      unless ref $value;
-	return $value->[0] unless wantarray;
-	return @$value;
-});
+	foo => [qw( bar baz )], quux => [ 1 ], 'From ' => [ 'icky' ]
+};
 
 $result = $mta->copy_headers();
 isa_ok( $result,     'HASH',     'copy_headers() should return headers' );
-isnt( $result,       $headers,   '... not pointing to same hash' );
+isnt( $result, 
+	$mock_mess->{head},          '... not pointing to same hash' );
 is( $result->{Quux}, 1,          '... copying normal headers across' );
 is( $result->{Foo}, 'bar, baz',  '... string and commify-ing a list' );
 ok( ! exists $result->{'From '}, '... deleting mail starting "From " header' );

@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name: Mail-TempAddress
-version: 0.56
+version: 0.60
 author:
   - chromatic, C<chromatic@wgz.org>.
 abstract: |-
@@ -8,19 +8,19 @@ abstract: |-
 license: perl
 requires:
   Class::Roles: 0.30
+  Email::Address: ''
   Mail::Action: 0.30
-  Mail::Address: 1.53
-  Mail::Internet: 1.53
+  YAML: 0.35
+build_requires:
   Test::Exception: ''
   Test::MockObject: 0.11
   Test::Simple: 0.47
-  YAML: 0.35
 provides:
   Mail::TempAddress:
     file: lib/Mail/TempAddress.pm
-    version: 0.56
+    version: 0.60
   Mail::TempAddress::Address:
     file: lib/Mail/TempAddress/Address.pm
   Mail::TempAddress::Addresses:
     file: lib/Mail/TempAddress/Addresses.pm
-generated_by: Module::Build version 0.24
+generated_by: Module::Build version 0.25
