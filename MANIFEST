@@ -1,0 +1,13 @@
+Build.PL
+MANIFEST			This list of files
+META.yml
+Makefile.PL			Backwards-compatibility with ExtUtils::MakeMaker
+lib/Mail/TempAddress.pm
+lib/Mail/TempAddress/Address.pm
+lib/Mail/TempAddress/Addresses.pm
+t/address.t
+t/addresses.t
+t/customer.t
+t/tempaddress.t
+t/lib/FakeIn.pm
+t/lib/FakeMail.pm

@@ -1,0 +1,24 @@
+--- #YAML:1.0
+name: Mail-TempAddress
+version: 0.52
+license: perl
+distribution_type: module
+requires:
+  Mail::Address: 1.53
+  Mail::Internet: 1.53
+  Test::Exception: ''
+  Test::MockObject: 0.11
+  Test::Simple: 0.47
+  YAML: 0.35
+recommends: {}
+build_requires: {}
+conflicts: {}
+provides:
+  Mail::TempAddress:
+    file: lib/Mail/TempAddress.pm
+    version: 0.52
+  Mail::TempAddress::Address:
+    file: lib/Mail/TempAddress/Address.pm
+  Mail::TempAddress::Addresses:
+    file: lib/Mail/TempAddress/Addresses.pm
+generated_by: Module::Build version 0.20
