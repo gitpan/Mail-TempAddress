@@ -10,139 +10,171 @@ use Mail::Mailer;
 use Email::Address;
 
 use Mail::TempAddress::Addresses;
+
 use vars '$VERSION';
-$VERSION = '0.60';
+$VERSION = '0.62';
 
 sub storage_class
 {
-	'Mail::TempAddress::Addresses'
+    'Mail::TempAddress::Addresses'
 }
 
 sub process
 {
-	my $self    = shift;
-	my $command = $self->find_command();
+    my $self    = shift;
 
-	return $self->$command() if $command;
+    return if $self->request()->message()->header( 'X-MTA-Seen' );
 
-	my ($address, $key) = $self->fetch_address();
+    my $command = $self->find_command();
+    return $self->$command() if $command;
 
-	my $result = eval
-	{
-		die    "No address found\n"             unless $address;
-		return $self->respond( $address, $key ) if     $key;
-		return $self->deliver( $address )       if     $address;
-	};
+    my ($address, $key) = $self->fetch_address();
 
-	return $result unless $@;
-	$self->reject( $@ );
+    my $result = eval
+    {
+        die    "No address found\n"             unless $address;
+        return $self->respond( $address, $key ) if     $key;
+        return $self->deliver( $address )       if     $address;
+    };
+
+    return $result unless $@;
+    $self->reject( $@ );
 }
 
 sub command_help
 {
-	my $self = shift;
-	$self->SUPER::command_help( $pod, 'USING ADDRESSES', 'DIRECTIVES' );
+    my $self = shift;
+    $self->SUPER::command_help( $pod, 'USING ADDRESSES', 'DIRECTIVES' );
 }
 
 sub deliver
 {
-	my ($self, $address) = @_;
+    my ($self, $address) = @_;
 
-	my $expires = $address->expires();
-	$self->reject() if $expires and $expires < time();
+    my $expires = $address->expires();
+    $self->reject() if $expires and $expires < time();
 
-	my $message = $self->message();
-	my $from    = $self->parse_address( 'From' );
-	my $key     = $address->add_sender( $from );
-	my $desc    = $address->description();
+    my $request = $self->request();
+    my $from    = $request->header( 'From' )->address();
+    my $key     = $address->add_sender( $from );
+    my $desc    = $address->description();
+    my $to      = $request->recipient();
+    my $user    = $to->user();
+    my $host    = $to->host();
 
-	my ($to)    = Email::Address->parse( $message->header( 'To' ) );
-	my $user    = $to->user();
-	my $host    = $to->host();
+    my @all_to  =
+        map  { $self->build_address( $_, $address, $user, $host  ) }
+        grep { $_->address() ne $to->address() }
+        $request->header( 'To' );
 
-	my $headers = $self->copy_headers();
+    my @all_cc  =
+        map  { $self->build_address( $_, $address, $user, $host  ) }
+        grep { $_->address() ne $to->address() }
+        $request->header( 'Cc' );
 
-	$headers->{From}                = $from;
-	$headers->{To}                  = $address->owner();
-	$headers->{'Reply-To'}          = "$user+$key\@$host";
-	$headers->{'X-MTA-Description'} = $desc if $desc;
+    my $headers = $request->copy_headers();
 
-	$self->storage->save( $address, $address->name() );
+    $headers->{From}                = $from;
+    $headers->{To}                  = [ $address->owner(), @all_to ];
+    $headers->{Cc}                  = \@all_cc if @all_cc;
+    $headers->{'Reply-To'}          = "$user+$key\@$host";
+    $headers->{'X-MTA-Description'} = $desc if $desc;
 
-	$self->reply( $headers, $message->body_raw() );
+    $self->storage->save( $address, $address->name() );
+
+    $self->reply( $headers, $request->message->body_raw() );
+}
+
+sub build_address
+{
+    my ($self, $addy, $address, $user, $host) = @_;
+
+    my $real_addy = $addy->address();
+    my $comment   = '(' . $real_addy . ')';
+    my $key       = $address->add_sender( $real_addy );
+    my $keyed     = '<' . $user . '+' . $key . '@' . $host . '>';
+
+    return $comment . ' ' . $keyed;
 }
 
 sub respond
 {
-	my ($self, $address, $key) = @_;
+    my ($self, $address, $key) = @_;
 
-	my $to          = $address->get_sender( $key )
-		or die "No sender for '$key'\n";
+    my $request      = $self->request();
+    my $to           = $address->get_sender( $key )
+        or die "No sender for '$key'\n";
 
-	my $message     = $self->message();
+    my $message      = $self->message();
 
-	my $host = (Email::Address->parse( $message->header( 'To' ) ))[0]->host();
-	my $from = $address->name() . "\@$host";
+    my $addy         = $request->recipient();
+    my $host         = $addy->host();
+    my $from         = $address->name() . "\@$host";
 
-	my $headers      = $self->copy_headers();
-	$headers->{To}   = $to;
-	$headers->{From} = $from;
+    my $headers      = $request->copy_headers();
+    $headers->{To}   = $to;
+    $headers->{From} = $from;
+    delete $headers->{Cc};
 
-	$self->reply( $headers, $self->message->body_raw() );
+    $self->reply( $headers, join("\n", @{ $request->remove_sig() } ));
 }
 
 sub fetch_address
 {
-	my $self      = shift;
-	my $message   = $self->message();
-	my $addresses = $self->storage();
-	my ($to_addy) = Email::Address->parse( $message->header( 'To' ) );
-	my $to        = $to_addy->user();
+    my $self          = shift;
+    my ($alias, $key) = $self->parse_alias( $self->request()->recipient() );
+    my $addresses     = $self->storage();
 
-	my $key;
-	$key          = $1 if $to =~ s/\+(\w+)$//;
+    return unless $addresses->exists( $alias );
 
-	return unless $addresses->exists( $to );
-	my $addy      = $addresses->fetch( $to );
+    my $addy          = $addresses->fetch( $alias );
 
-	return wantarray ? ($addy, $key) : $addy;
+    return wantarray ? ( $addy, $key ) : $addy;
+}
+
+sub parse_alias
+{
+    my ($self, $address)  = @_;
+    my ($add)             = Email::Address->parse( $address );
+    my $user              = $add->user();
+    my $expansion_pattern = $self->expansion_pattern();
+    my $key               = ( $user =~ s/$expansion_pattern// ? $1 : undef );
+    return wantarray ? ( $user, $key ) : $user;
+}
+
+sub expansion_pattern
+{
+    return qr/\+([^+]+)$/;
 }
 
 sub command_new
 {
-	my $self      = shift;
-	my $from      = $self->parse_address( 'From' );
-	my $to        = $self->parse_address( 'To' );
-	my $domain    = (Email::Address->parse( $to ) )[0]->host();
+    my $self      = shift;
+    my $request   = $self->request();
+    my $from      = $request->header( 'From' )->address();
+    my $to        = $request->recipient();
+    my $domain    = $to->host();
 
-	my $addresses = $self->storage();
-	my $address   = $addresses->create( $from );
-	my $tempaddy  = $addresses->generate_address();
+    my $addresses = $self->storage();
+    my $address   = $addresses->create( $from );
+    my $tempaddy  = $addresses->generate_address();
 
-	$self->process_body( $address );
-	$addresses->save( $address, $tempaddy );
+    $self->process_body( $address );
+    $addresses->save( $address, $tempaddy );
 
-	$self->reply({
-		To      => $from,
-		From    => $to,
-		Subject => 'Temporary address created' },
-	"A new temporary address has been created for $from: $tempaddy\@$domain" );
-}
-
-sub parse_address
-{
-	my ($self, $field) = @_;
-	my $message        = $self->message();
-
-	return (Email::Address->parse( $message->header( $field ) ))[0]->address();
+    $self->reply({
+        To      => $from,
+        From    => $to->address(),
+        Subject => 'Temporary address created' },
+    "A new temporary address has been created for $from: $tempaddy\@$domain" );
 }
 
 sub reject
 {
-	my ($self, $error) = @_;
-	$error ||= "Invalid address";
-	$!       = 100;
-	die "$error\n";
+    my ($self, $error) = @_;
+    $error ||= "Invalid address";
+    $!       = 100;
+    die "$error\n";
 }
 
 1;
@@ -154,9 +186,9 @@ Mail::TempAddress - module for managing simple, temporary mailing addresses
 
 =head1 SYNOPSIS
 
-	use Mail::TempAddress;
-	my $mta = Mail::TempAddress->new( 'addresses' );
-	$mta->process();
+    use Mail::TempAddress;
+    my $mta = Mail::TempAddress->new( 'addresses' );
+    $mta->process();
 
 =head1 DESCRIPTION
 
@@ -177,7 +209,7 @@ DNS, but you only need to do it once.  The rest of these instructions assume
 you've installed Mail::TempAddress to handle all mail coming to addresses in
 the subdomain C<tempmail.example.com>.
 
-=head2 CREATING AN ADDRESS 
+=head2 CREATING AN ADDRESS
 
 To create a new temporary address, send an e-mail to the address
 C<new@tempmail.example.com>.  In the subject of the message, include the phrase
@@ -211,7 +243,7 @@ including directives when you create a new address.
 
 Directives go in the body of the creation message.  They take the form:
 
-	Directive: option
+    Directive: option
 
 =head2 Expires
 
@@ -222,7 +254,7 @@ receive an error message indicating that the address does not exist.
 This attribute is not set by default; addresses do not expire.  To enable it,
 use the directive form:
 
-	Expires: 7d2h
+    Expires: 7d2h
 
 This directive will cause the address to expire in seven days and two hours.
 Valid time units are:
@@ -249,14 +281,14 @@ This is a single line that describes the purpose of the address.  If provided,
 it will be sent in the C<X-MTA-Description> header in all messages sent to the
 address.  By default, it is blank.  To set a description, use the form:
 
-	Description: This address was generated to enter a contest.
+    Description: This address was generated to enter a contest.
 
 =head1 METHODS
 
 =over 4
 
 =item * new( $address_directory,
-	[ Filehandle => $fh, Storage => $addys, Message => $mess ] )
+    [ Filehandle => $fh, Storage => $addys, Message => $mess ] )
 
 C<new()> takes one mandatory argument and three optional arguments.
 C<$address_directory> is the path to the directory where address data is
@@ -277,6 +309,13 @@ by default.
 =item * process()
 
 Processes one incoming message.
+
+=item * expansion_pattern()
+
+Returns a compiled regex to find expanded e-mail addresses (of the form
+C<you+expansion@example.com>).  If you've set your mail server to use a
+delimiter other than C<+>, override this method.  For example, Andy Lester uses
+addresses of the form C<you-expansion@example.com>.  What a nut.
 
 =back
 
@@ -302,6 +341,5 @@ No known bugs.
 
 =head1 COPYRIGHT
 
-Copyright (c) 2003, chromatic.  All rights reserved.  This module is
-distributed under the same terms as Perl itself, in the hope that it is useful
-but certainly under no guarantee.  Hey, it's free.
+Copyright (c) 2003 - 2009 chromatic.  Some rights reserved.  You may use,
+modify, and distribute this module under the same terms as Perl 5.10 itself.

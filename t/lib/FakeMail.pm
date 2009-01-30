@@ -2,6 +2,7 @@ package FakeMail;
 
 use strict;
 use vars '$AUTOLOAD';
+use Scalar::Util 'reftype';
 
 sub new
 {
@@ -27,7 +28,11 @@ sub AUTOLOAD
 	my $self  = shift;
 	$AUTOLOAD =~ s/.*:://;
 	return if $AUTOLOAD eq 'DESTROY';
-	return $self->{$AUTOLOAD} if exists $self->{$AUTOLOAD};
+	return unless exists $self->{$AUTOLOAD};
+
+	my $value = $self->{$AUTOLOAD};
+	return $value if ( reftype $value || '' ) ne 'ARRAY';
+	return wantarray ? @$value : $value->[0];
 }
 
 1;

@@ -1,11 +1,11 @@
 Build.PL
 ChangeLog
-MANIFEST			This list of files
+MANIFEST            This list of files
 META.yml
-Makefile.PL			Backwards-compatibility with ExtUtils::MakeMaker
 lib/Mail/TempAddress.pm
 lib/Mail/TempAddress/Address.pm
 lib/Mail/TempAddress/Addresses.pm
+README
 t/address.t
 t/addresses.t
 t/customer.t
